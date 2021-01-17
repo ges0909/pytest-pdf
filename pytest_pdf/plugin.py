@@ -26,8 +26,8 @@ def pytest_addoption(parser: Parser, pluginmanager: PytestPluginManager) -> None
 
 
 def pytest_configure(config: Config):
-    if pdf_report_path := config.getoption(name="--pdf", default=None):
-        config._pdf = PdfReport(pdf_report_path, config)
+    if report_path := config.getoption(name="--pdf", default=None):
+        config._pdf = PdfReport(report_path)
         config.pluginmanager.register(config._pdf)
 
 
