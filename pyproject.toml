@@ -21,4 +21,4 @@ build-backend = "setuptools.build_meta"
 # addopts = "--pdf test_report.pdf"
 
 [tool.black]
-line-length = 98
+line-length = 120

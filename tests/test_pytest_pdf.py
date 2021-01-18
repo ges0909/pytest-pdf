@@ -37,6 +37,13 @@ def test_pytest_pdf_plugin(testdir):
 # ---
 
 
+def test_simple():
+    assert True
+
+
+# --
+
+
 def test_sum():
     list_ = [True, False, True, True]
     assert sum(list_) == 3
