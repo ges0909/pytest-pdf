@@ -44,7 +44,7 @@ class PdfReport:
 
     def _generate_report(self) -> None:
         for project_path, reports in self.reports.items():
-            name = project_path.parent.parent.name
+            name = project_path.parent.parent.name if project_path else "Default project"
             passed, failed, skipped = PdfReport._statistics(reports=reports)
             for i, r in enumerate(reports):
                 case_id, step_id = r.nodeid.split("::")
@@ -70,15 +70,13 @@ class PdfReport:
             dir_ = dir_.parent
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
-        bottom = (self.start_dir / report.fspath).parent.parent
-        project_path = (
-            self._find(
-                path=Path("impl/project"),
-                top=self.start_dir,
-                bottom=bottom,
-                predicate=lambda p: p.is_dir(),
-            )
-            or ""
+        # bottom = (self.start_dir / report.fspath).parent.parent
+        bottom = self.start_dir / report.fspath
+        project_path = self._find(
+            path=Path("impl/project"),
+            top=self.start_dir,
+            bottom=bottom,
+            predicate=lambda p: p.is_dir(),
         )
         self.reports[project_path].append(report)
 

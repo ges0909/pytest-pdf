@@ -1,11 +1,10 @@
-import pytest
-
-pytest_plugins = [
+pytest_plugins = (
     "pytester",
-]
+    # "pytest_pdf.plugin",
+)
 
 
-@pytest.mark.skip
+# @pytest.mark.skip
 def test_pytest_pdf_plugin(testdir):
     testdir.makepyfile(
         r"""
@@ -30,5 +29,6 @@ def test_pytest_pdf_plugin(testdir):
         """
     )
     path = testdir.tmpdir.join("report.pdf")
-    result = testdir.runpytest("--log-cli-level", "DEBUG", "--pdf", path)
+    result = testdir.runpytest("--pdf", path, plugins=["pytest_pdf.plugin"])  # !!! remove 'pytest_pdf.egg-info/'
+    # result = testdir.runpytest("--log-cli-level", "DEBUG", "--pdf", path, plugins=["pytest_pdf.plugin"])
     result.assert_outcomes(passed=1, failed=1, skipped=1)
