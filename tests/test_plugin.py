@@ -1,8 +1,11 @@
+import pytest
+
 pytest_plugins = [
     "pytester",
 ]
 
 
+@pytest.mark.skip
 def test_pytest_pdf_plugin(testdir):
     testdir.makepyfile(
         r"""
