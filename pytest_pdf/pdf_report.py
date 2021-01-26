@@ -104,8 +104,10 @@ class PdfReport:
 
     # -- hook impl.
 
-    def pytest_pdf_report_title(self, session: Session) -> str:
+    @staticmethod
+    def pytest_pdf_report_title(session: Session) -> str:
         return "Test title"
 
-    def pytest_pdf_tested_software(self, session: Session) -> Tuple[str, str, list]:
+    @staticmethod
+    def pytest_pdf_tested_software(session: Session) -> Tuple[str, str, list]:
         return "Test", "1.0.0", []
