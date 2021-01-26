@@ -1,3 +1,4 @@
+import datetime
 import logging
 import time
 from collections import defaultdict
@@ -19,10 +20,14 @@ class PdfReport:
     """collects data for pdf report generation"""
 
     def __init__(self, report_path: Path):
-        self.report_path = report_path
+        path = Path(report_path)
+        now = datetime.datetime.now()
+        self.report_path = path.parent / now.strftime(path.name)
         self.start_dir = None
         self.session_start_time = None
         self.reports: Dict[Path, List[TestReport]] = defaultdict(list)
+        self.title = None
+        self.sw_infos = None
 
     @staticmethod
     def _error_text(error: str):
@@ -66,7 +71,7 @@ class PdfReport:
             if predicate(path_):
                 return path_
             if dir_ == top:
-                return None
+                return Path(".")
             dir_ = dir_.parent
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
@@ -87,8 +92,8 @@ class PdfReport:
 
     def pytest_sessionfinish(self, session: Session, exitstatus: Union[int, ExitCode]) -> None:
         logger.info("test session finished")
-        title = session.config.hook.pytest_pdf_report_title(session=session)
-        version = session.config.hook.pytest_pdf_tested_software(session=session)
+        self.title = session.config.hook.pytest_pdf_report_title(session=session)
+        self.sw_infos = session.config.hook.pytest_pdf_tested_software(session=session)
         reports = PdfReport._flatten(reports=self.reports)
         passed, failed, skipped = PdfReport._statistics(reports=reports)
         self._generate_report()
@@ -100,8 +105,7 @@ class PdfReport:
     # -- hook impl.
 
     def pytest_pdf_report_title(self, session: Session) -> str:
-        return "this is the return title returned by a hook"
+        return "Test title"
 
-    def pytest_pdf_tested_software(self, session: Session) -> Tuple[str]:
-        # search 'about' impl. and call it to get the '*.jar'
-        return ("",)
+    def pytest_pdf_tested_software(self, session: Session) -> Tuple[str, str, list]:
+        return "Test", "1.0.0", []
