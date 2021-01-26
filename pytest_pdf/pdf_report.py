@@ -9,6 +9,7 @@ from typing import Union, Dict, List, Optional, Callable, Tuple
 from _pytest.config import ExitCode
 from _pytest.main import Session
 from _pytest.reports import TestReport
+from _pytest.terminal import TerminalReporter
 
 logger = logging.getLogger(__name__)
 
@@ -61,28 +62,10 @@ class PdfReport:
     def _save_report(self) -> None:
         pass
 
-    @lru_cache(maxsize=None)
-    def _find(self, path: Path, top: Path, bottom: Path, predicate: Callable[[Path], bool]) -> Optional[Path]:
-        """try to find 'path' from 'bottom' to 'top' dir."""
-        dir_ = top / bottom.relative_to(top)
-        while True:
-            path_ = dir_ / path
-            logger.debug("find file '%s', dir '%s'", str(bottom), str(path_))
-            if predicate(path_):
-                return path_
-            if dir_ == top:
-                return Path(".")
-            dir_ = dir_.parent
-
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         # bottom = (self.start_dir / report.fspath).parent.parent
         bottom = self.start_dir / report.fspath
-        project_path = self._find(
-            path=Path("impl/project"),
-            top=self.start_dir,
-            bottom=bottom,
-            predicate=lambda p: p.is_dir(),
-        )
+        project_path = PdfReport.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
         self.reports[project_path].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
@@ -99,10 +82,32 @@ class PdfReport:
         self._generate_report()
         self._save_report()
 
-    def pytest_terminal_summary(self, terminalreporter):
+    def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
         terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
 
     # -- hook impl.
+
+    @staticmethod
+    def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[Path]:
+        @lru_cache(maxsize=128)
+        def _find(path: Path, top_: Path, bottom_: Path, predicate: Callable[[Path], bool]) -> Optional[Path]:
+            """try to find 'path' from 'bottom' to 'top' dir."""
+            dir_ = top_ / bottom_.relative_to(top)
+            while True:
+                path_ = dir_ / path
+                logger.debug("find file '%s', dir '%s'", str(bottom_), str(path_))
+                if predicate(path_):
+                    return path_
+                if dir_ == top_:
+                    return Path(".")
+                dir_ = dir_.parent
+
+        return _find(
+            path=Path("impl/project"),
+            top_=top,
+            bottom_=bottom,
+            predicate=lambda p: p.is_dir(),
+        )
 
     @staticmethod
     def pytest_pdf_report_title(session: Session) -> str:

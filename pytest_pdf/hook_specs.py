@@ -1,8 +1,11 @@
-from typing import Tuple
+from pathlib import Path
+from typing import Tuple, Optional
 
 from _pytest.main import Session
 
-# -- hook spec.
+
+def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[str]:
+    """returns the path to the nearest dir. 'impl/project'"""
 
 
 def pytest_pdf_report_title(session: Session) -> str:

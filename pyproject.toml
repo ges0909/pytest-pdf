@@ -6,6 +6,7 @@ authors = ["Gerrit Schrader <gerrit.schrader@gmail.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.9"
+reportlab = "^3.5.60"
 
 [tool.poetry.dev-dependencies]
 pytest = "^6.2.1"
