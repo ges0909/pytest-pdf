@@ -2,6 +2,8 @@ from typing import Tuple
 
 from _pytest.main import Session
 
+# -- hook spec.
+
 
 def pytest_pdf_report_title(session: Session) -> str:
     """returns the pdf report title"""

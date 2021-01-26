@@ -5,9 +5,9 @@ from pytest_pdf.pdf_report import PdfReport
 
 
 def pytest_addhooks(pluginmanager: PytestPluginManager) -> None:
-    from pytest_pdf import hooks
+    from pytest_pdf import hook_specs
 
-    pluginmanager.add_hookspecs(hooks)
+    pluginmanager.add_hookspecs(hook_specs)
 
 
 def pytest_addoption(parser: Parser, pluginmanager: PytestPluginManager) -> None:
@@ -27,11 +27,11 @@ def pytest_addoption(parser: Parser, pluginmanager: PytestPluginManager) -> None
 
 def pytest_configure(config: Config):
     if report_path := config.getoption(name="--pdf", default=None):
-        config._pdf = PdfReport(report_path)
-        config.pluginmanager.register(config._pdf)
+        pdf_plugin = PdfReport(report_path)
+        config.pluginmanager.register(pdf_plugin)
 
 
 def pytest_unconfigure(config: Config):
     if config.getoption("--pdf", None):
-        config.pluginmanager.unregister(config._pdf)
-        del config._pdf
+        pdf_plugin = config.pluginmanager.getplugin("pytest_pdf.plugin")
+        config.pluginmanager.unregister(pdf_plugin)

@@ -5,7 +5,7 @@ pytest_plugins = (
 
 
 # @pytest.mark.skip
-def test_pytest_pdf_plugin(testdir):
+def test_pytest_pdf_plugin(testdir, request):
     testdir.makepyfile(
         r"""
         import logging
@@ -28,7 +28,9 @@ def test_pytest_pdf_plugin(testdir):
             assert False
         """
     )
-    path = testdir.tmpdir.join("report.pdf")
-    result = testdir.runpytest("--pdf", path, plugins=["pytest_pdf.plugin"])  # !!! remove 'pytest_pdf.egg-info/'
-    # result = testdir.runpytest("--log-cli-level", "DEBUG", "--pdf", path, plugins=["pytest_pdf.plugin"])
+    report_path = testdir.tmpdir.join("report.pdf")
+    args = ["--pdf", report_path]  # "--log-cli-level", "DEBUG"
+    if not request.config.pluginmanager.hasplugin("pytest_pdf.plugin"):
+        args.extend(["-p", "pytest_pdf.plugin"])
+    result = testdir.runpytest(*args)  # !!! remove 'pytest_pdf.egg-info/'
     result.assert_outcomes(passed=1, failed=1, skipped=1)

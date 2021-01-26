@@ -12,13 +12,16 @@ with open("README.md", "r") as fh:
 
 setup(
     name="pytest-pdf",
-    version="0.1.0",
+    version="1.0.0",
     packages=[
         "pytest_pdf",
     ],
     description="A pytest plugin to generated PDF test reports.",
     long_description=long_description,
     long_description_content_type="text/markdown",
+    classifiers=["Framework :: Pytest"],  # for PyPI
     install_requires=install_requires(),
-    entry_points={"pytest11": ["pytest-pdf = pytest_pdf.plugin"]},
+    entry_points={
+        "pytest11": ["pytest-pdf = pytest_pdf.plugin"],
+    },
 )

@@ -97,6 +97,8 @@ class PdfReport:
     def pytest_terminal_summary(self, terminalreporter):
         terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
 
+    # -- hook impl.
+
     def pytest_pdf_report_title(self, session: Session) -> str:
         return "this is the return title returned by a hook"
 
