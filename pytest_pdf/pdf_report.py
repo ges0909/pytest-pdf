@@ -1,6 +1,7 @@
 import datetime
 import logging
 from collections import defaultdict
+from itertools import groupby
 from pathlib import Path
 from typing import Union, Dict, List, Optional, Tuple
 
@@ -17,7 +18,6 @@ from reportlab.lib.units import mm
 from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Flowable, Table, KeepTogether, PageBreak
 
 from pytest_pdf.chart import PieChartWithLegend
-from pytest_pdf.group_by_key import group_by_key
 from pytest_pdf.mkdir import mkdir
 from pytest_pdf.result import Result
 
@@ -96,9 +96,9 @@ class PdfReport:
 
     @staticmethod
     def _test_case_results(reports: List[TestReport]) -> Tuple[int, int, int]:
-        test_cases = group_by_key(things=reports, key=lambda r: r.nodeid.split("::")[0])
+        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
         passed, skipped, failed = 0, 0, 0
-        for _, reports_ in test_cases.items():
+        for _, reports_ in test_cases:
             _passed, _skipped, _failed = PdfReport._test_step_results(reports=reports_)
             if _failed > 0:
                 failed += 1
