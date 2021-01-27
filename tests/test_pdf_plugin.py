@@ -1,3 +1,5 @@
+from pathlib import Path
+
 pytest_plugins = (
     "pytester",
     # "pytest_pdf.plugin",
@@ -28,9 +30,10 @@ def test_pytest_pdf_plugin(testdir, request):
             assert False
         """
     )
-    report_path = testdir.tmpdir.join("test_report.pdf")
-    args = ["--pdf", report_path]  # "--log-cli-level", "DEBUG"
+    report_path = Path(testdir.tmpdir) / "test_report.pdf"
+    args = ["--pdf", report_path]
+    # args = ["--pdf", report_path, "--log-cli-level", "DEBUG"]
     if not request.config.pluginmanager.hasplugin("pytest_pdf.plugin"):
         args.extend(["-p", "pytest_pdf.plugin"])
-    result = testdir.runpytest(*args)  # !!! remove 'pytest_pdf.egg-info/'
+    result = testdir.runpytest(*args)
     result.assert_outcomes(passed=1, failed=1, skipped=1)

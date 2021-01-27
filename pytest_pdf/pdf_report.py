@@ -10,11 +10,11 @@ from _pytest.reports import TestReport
 from _pytest.terminal import TerminalReporter
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
-from reportlab.lib.enums import TA_CENTER
+from reportlab.lib.enums import TA_LEFT, TA_CENTER
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Flowable
+from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Flowable, Table, KeepTogether, PageBreak
 
 from pytest_pdf.chart import PieChartWithLegend
 from pytest_pdf.group_by_key import group_by_key
@@ -42,6 +42,26 @@ HEADING_1_STYLE = ParagraphStyle(
     leading=12,
     spaceAfter=15,
 )
+
+TABLE_HEADER_CELL_STYLE = ParagraphStyle(
+    name="header",
+    fontSize=8,
+    fontName="Courier-Bold",
+    alignment=TA_CENTER,
+)
+
+TABLE_CELL_STYLE_LEFT = ParagraphStyle(
+    name="cell",
+    fontSize=8,
+    fontName="Courier",
+    alignment=TA_LEFT,
+)
+
+TABLE_STYLE = [
+    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+    ("BOX", (0, 0), (-1, -1), 0.1, colors.black),
+    ("INNERGRID", (0, 0), (-1, -1), 0.1, colors.black),
+]
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +109,36 @@ class PdfReport:
         return passed, skipped, failed
 
     @staticmethod
+    def _environment_page(name: str, heading: Flowable) -> Flowable:
+        table_data = [
+            [
+                Paragraph("Data key", TABLE_HEADER_CELL_STYLE),
+                Paragraph("Value", TABLE_HEADER_CELL_STYLE),
+            ],
+        ]
+
+        data = PdfReport.pytest_pdf_environment_data(environment_name=name)
+
+        for key, value in data:
+            table_data.append(
+                [
+                    Paragraph(key, TABLE_CELL_STYLE_LEFT),
+                    Paragraph(value, TABLE_CELL_STYLE_LEFT),
+                ],
+            )
+
+        table = Table(
+            data=table_data,
+            colWidths=[180, 280],
+            hAlign="LEFT",
+            style=TABLE_STYLE,
+            spaceBefore=5,
+            spaceAfter=15,
+        )
+
+        return KeepTogether([heading, table])
+
+    @staticmethod
     def _footer(canvas, doc):
         canvas.saveState()  # save state of canvas to draw on it
         footer_paragraph = Paragraph(
@@ -108,17 +158,17 @@ class PdfReport:
 
     def _story(self, session: Session) -> List[Flowable]:
         flowables = []
-        for project, reports in self.reports.items():
+        for name, reports in self.reports.items():
 
-            version = PdfReport.pytest_pdf_project_version(project)
-            environment = PdfReport.pytest_pdf_environment_name(project)
-            tested_packages = PdfReport.pytest_pdf_tested_packages(project)
+            version = PdfReport.pytest_pdf_project_version(project_name=name)
+            environment_name = PdfReport.pytest_pdf_environment_name(project_name=name)
+            tested_packages = PdfReport.pytest_pdf_tested_packages(project_name=name)
             tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages]
 
             titles = [
-                Paragraph(text=f"{project} {version}", style=STYLES["Title"]),
+                Paragraph(text=f"{name} {version}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
-                Paragraph(text=f"Environment:  {environment}", style=TITLE_STYLE),
+                Paragraph(text=f"Environment:  {environment_name}", style=TITLE_STYLE),
                 Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
                 Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
             ]
@@ -172,12 +222,12 @@ class PdfReport:
                 [
                     *titles,
                     charts,
-                    # PageBreak(),
+                    PageBreak(),
                     # *result_pages,
-                    # get_environment_page(
-                    #     env=project.items[0].env,  # take 1st script item, because all use the same env
-                    #     heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
-                    # ),
+                    PdfReport._environment_page(
+                        name=environment_name,
+                        heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
+                    ),
                     # PageBreak(),
                 ]
             )
@@ -234,15 +284,23 @@ class PdfReport:
         return "Test Project"
 
     @staticmethod
-    def pytest_pdf_project_version(name: str) -> Optional[str]:
+    def pytest_pdf_project_version(project_name: str) -> Optional[str]:
         return "1.0.0"
 
     @staticmethod
-    def pytest_pdf_environment_name(name: str) -> Optional[str]:
+    def pytest_pdf_environment_name(project_name: str) -> Optional[str]:
         return "DEV1"
 
     @staticmethod
-    def pytest_pdf_tested_packages(name: str) -> List[Tuple[str, str]]:
+    def pytest_pdf_environment_data(environment_name: str) -> List[Tuple[str, str]]:
         return [
-            ("SOFTWARE", "1.0.0"),
+            ("enpoint", "http://www.vodafone.de/"),
+            ("username", "tester"),
+        ]
+
+    @staticmethod
+    def pytest_pdf_tested_packages(project_name: str) -> List[Tuple[str, str]]:
+        return [
+            ("PACKAGE x", "1.0.0"),
+            ("PACKAGE y", "1.0.1"),
         ]
