@@ -5,8 +5,6 @@ from reportlab.graphics.charts.piecharts import Pie
 from reportlab.graphics.shapes import Group, String
 from reportlab.lib import colors
 
-from pytest_pdf.result import Result
-
 
 def percent(dividend, divisor) -> float:
     return (dividend / divisor if divisor else 0) * 100
@@ -25,7 +23,7 @@ class _PieChart(Pie):
         self.slices.strokeWidth = 3
         self.slices.strokeColor = colors.white
         self.slices.fontSize = 12
-        self.slices[labels.index(Result.failed)].popout = 5
+        self.slices[labels.index("failed")].popout = 5
 
 
 class _LegendHeader(Legend):

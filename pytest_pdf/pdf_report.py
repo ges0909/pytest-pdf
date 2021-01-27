@@ -3,9 +3,9 @@ import logging
 from collections import defaultdict
 from itertools import groupby
 from pathlib import Path
-from typing import Union, Dict, List, Optional, Tuple
+from typing import Union, Dict, List, Optional, Tuple, Generator
 
-from _pytest.config import ExitCode
+from _pytest.config import ExitCode, Config
 from _pytest.main import Session
 from _pytest.reports import TestReport
 from _pytest.terminal import TerminalReporter
@@ -19,10 +19,9 @@ from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, 
 
 from pytest_pdf.chart import PieChartWithLegend
 from pytest_pdf.mkdir import mkdir
-from pytest_pdf.result import Result
 
 ELLIPSIS = "..."
-ERROR_TEXT_MAX_LENGTH = 20
+ERROR_TEXT_MAX_LENGTH = 60
 
 STYLES = getSampleStyleSheet()
 
@@ -41,6 +40,13 @@ HEADING_1_STYLE = ParagraphStyle(
     fontSize=11,
     leading=12,
     spaceAfter=15,
+)
+
+HEADING_2_STYLE = ParagraphStyle(
+    name="h1",
+    parent=STYLES["Heading1"],
+    fontSize=8,
+    leading=12,
 )
 
 TABLE_HEADER_CELL_STYLE = ParagraphStyle(
@@ -65,14 +71,15 @@ TABLE_STYLE = [
 
 logger = logging.getLogger(__name__)
 
-LABELS = (Result.passed, Result.skipped, Result.failed)
+LABELS = ("passed", "skipped", "failed")
 COLORS = (colors.lightgreen, colors.yellow, colors.orangered)
 
 
 class PdfReport:
     """collects test results and generates pdf report"""
 
-    def __init__(self, report_path: Path):
+    def __init__(self, config: Config, report_path: Path):
+        self.config = config
         self.start_dir = None
         self.now = datetime.datetime.now()
         self.reports: Dict[str, List[TestReport]] = defaultdict(list)
@@ -81,11 +88,14 @@ class PdfReport:
         mkdir(path=self.report_path)
 
     @staticmethod
-    def _error_text(error: str):
-        error_text_ellipsis_max_length = ERROR_TEXT_MAX_LENGTH + len(ELLIPSIS)
+    def _error_text(error: str, when: str, prefix: str = "FAILED "):
         lines = error.split()
         error_ = " ".join(lines)
-        return f"{error_[:ERROR_TEXT_MAX_LENGTH]}{ELLIPSIS}" if len(error_) > error_text_ellipsis_max_length else error_
+        if error_.startswith(prefix):
+            error_ = error_[len(prefix) :]  # remove prefix
+        error_ += when
+        length = ERROR_TEXT_MAX_LENGTH - len(ELLIPSIS)
+        return f"{error_[:length]}{ELLIPSIS}" if len(error_) > length else error_
 
     @staticmethod
     def _test_step_results(reports: List[TestReport]) -> Tuple[int, int, int]:
@@ -109,7 +119,87 @@ class PdfReport:
         return passed, skipped, failed
 
     @staticmethod
-    def _environment_page(name: str, heading: Flowable) -> Flowable:
+    def _result_style(color_):
+        return ParagraphStyle(name="Normal", fontSize=9, fontName="Courier", alignment=TA_CENTER, backColor=color_)
+
+    def _test_step_result_tables_grouped_by_test_case(
+        self,
+        reports: List[TestReport],
+    ) -> Generator[Tuple[str, Table], None, None]:
+
+        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
+
+        for test_case_id, reports_ in test_cases:
+
+            table_data = [
+                [
+                    Paragraph("Test Step Id", TABLE_HEADER_CELL_STYLE),
+                    Paragraph("Parameter", TABLE_HEADER_CELL_STYLE),
+                    Paragraph("Result", TABLE_HEADER_CELL_STYLE),
+                    Paragraph("Error/Reason", TABLE_HEADER_CELL_STYLE),
+                ],
+            ]
+
+            # If spanned table cell height can't be displayed on one page and therefore the table must be
+            # continued on next page, then the error "...  too large on page ... in frame' will be raised.
+            # There is no solution: https://groups.google.com/forum/#!topic/reportlab-users/wlIN3Fsg2VA
+
+            previous_nodeid = None
+
+            for span_to, report in enumerate(reports_, 1):  # 1 = exclude table header
+                # colum 1
+                if previous_nodeid and previous_nodeid == report.nodeid:
+                    test_step_id_paragraph = Paragraph("", TABLE_CELL_STYLE_LEFT)
+                else:
+                    test_step_id_paragraph = Paragraph(report.nodeid, TABLE_CELL_STYLE_LEFT)
+                # column 2
+                parameters = self.config.hook.pytest_pdf_test_parameters(nodeid=report.nodeid)
+                parameter_paragraphs = [Paragraph(p, TABLE_CELL_STYLE_LEFT) for p in parameters[0]]
+                # column 3
+                result_paragraph = Paragraph(
+                    report.outcome, PdfReport._result_style(COLORS[LABELS.index(report.outcome)])
+                )
+                # column 4
+                error_paragraph = None
+                if report.outcome == "skipped":
+                    reason = self.config.hook.pytest_pdf_skip_reason(nodeid=report.nodeid)
+                    if reason:
+                        error_paragraph = Paragraph(reason[0], TABLE_CELL_STYLE_LEFT)
+                elif report.outcome == "failed":
+                    when = report.when if report.when in ("setup", "teardown") else ""
+                    if report.longreprtext:
+                        error = when + PdfReport._error_text(error=report.longreprtext, when=when)
+                        error_paragraph = Paragraph(error, TABLE_CELL_STYLE_LEFT)
+
+                table_data.append([test_step_id_paragraph, parameter_paragraphs, result_paragraph, error_paragraph])
+
+                previous_nodeid = report.nodeid
+
+            yield test_case_id, Table(
+                data=table_data,
+                colWidths=[180, 140, 50, 90],
+                repeatRows=1,
+                hAlign="LEFT",
+                style=TABLE_STYLE,
+                spaceAfter=15,
+            )
+
+    def _test_step_result_pages(self, reports: List[TestReport], heading: Flowable = None) -> List[Flowable]:
+        flowables = []
+        not_inserted = True
+        for test_case_id, table in self._test_step_result_tables_grouped_by_test_case(reports=reports):
+            if heading and not_inserted:
+                flowables.append(
+                    KeepTogether([heading, Paragraph(test_case_id, style=HEADING_2_STYLE), table]),
+                )
+                not_inserted = False
+            else:
+                flowables.append(
+                    KeepTogether([Paragraph(test_case_id, style=HEADING_2_STYLE), table]),
+                )
+        return flowables
+
+    def _environment_page(self, name: str, heading: Flowable) -> Flowable:
         table_data = [
             [
                 Paragraph("Data key", TABLE_HEADER_CELL_STYLE),
@@ -117,9 +207,9 @@ class PdfReport:
             ],
         ]
 
-        data = PdfReport.pytest_pdf_environment_data(environment_name=name)
+        data = self.config.hook.pytest_pdf_environment_data(environment_name=name)
 
-        for key, value in data:
+        for key, value in data[0]:
             table_data.append(
                 [
                     Paragraph(key, TABLE_CELL_STYLE_LEFT),
@@ -156,19 +246,19 @@ class PdfReport:
         footer_paragraph.drawOn(canvas, x=doc.leftMargin, y=(h * 2))
         canvas.restoreState()
 
-    def _story(self, session: Session) -> List[Flowable]:
+    def _story(self) -> List[Flowable]:
         flowables = []
         for name, reports in self.reports.items():
 
-            version = PdfReport.pytest_pdf_project_version(project_name=name)
-            environment_name = PdfReport.pytest_pdf_environment_name(project_name=name)
-            tested_packages = PdfReport.pytest_pdf_tested_packages(project_name=name)
-            tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages]
+            version = self.config.hook.pytest_pdf_project_version(project_name=name)
+            environment_name = self.config.hook.pytest_pdf_environment_name(project_name=name)
+            tested_packages = self.config.hook.pytest_pdf_tested_packages(project_name=name)
+            tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
 
             titles = [
-                Paragraph(text=f"{name} {version}", style=STYLES["Title"]),
+                Paragraph(text=f"{name} {version[0]}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
-                Paragraph(text=f"Environment:  {environment_name}", style=TITLE_STYLE),
+                Paragraph(text=f"Environment:  {environment_name[0]}", style=TITLE_STYLE),
                 Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
                 Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
             ]
@@ -211,24 +301,23 @@ class PdfReport:
             #         ),
             #     ]
             # else:
-            #     result_pages = [
-            #         *get_test_step_result_pages(
-            #             items=step_items,
-            #             heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
-            #         ),
-            #     ]
+            result_pages = [
+                *self._test_step_result_pages(
+                    reports=reports,
+                    heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
+                ),
+            ]
 
             flowables.extend(
                 [
                     *titles,
                     charts,
                     PageBreak(),
-                    # *result_pages,
-                    PdfReport._environment_page(
+                    *result_pages,
+                    self._environment_page(
                         name=environment_name,
                         heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
                     ),
-                    # PageBreak(),
                 ]
             )
 
@@ -257,22 +346,22 @@ class PdfReport:
         doc.addPageTemplates([template])
         return doc
 
-    def _generate_report(self, session: Session) -> None:
+    def _generate_report(self) -> None:
         doc = self._create_doc()
-        doc.multiBuild(story=self._story(session))
+        doc.multiBuild(story=self._story())
 
     # -- pytest hooks
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         bottom = self.start_dir / report.fspath
-        name = PdfReport.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
-        self.reports[name].append(report)
+        name = self.config.hook.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
+        self.reports[name[0]].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
         self.start_dir = Path(session.fspath)
 
     def pytest_sessionfinish(self, session: Session, exitstatus: Union[int, ExitCode]) -> None:
-        self._generate_report(session)
+        self._generate_report()
 
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
         terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
@@ -304,3 +393,14 @@ class PdfReport:
             ("PACKAGE x", "1.0.0"),
             ("PACKAGE y", "1.0.1"),
         ]
+
+    @staticmethod
+    def pytest_pdf_test_parameters(nodeid: str) -> List[str]:
+        return [
+            "x=1",
+            "y=2",
+        ]
+
+    @staticmethod
+    def pytest_pdf_skip_reason(nodeid: str) -> Optional[str]:
+        return "not implemented"
