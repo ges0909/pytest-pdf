@@ -478,6 +478,6 @@ def generate_report(config: Config):
     if config.getoption(Option.PDF, None):
         path = config.pdf_report_file_path
         if path.parent.parts:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent._mkdir(parents=True, exist_ok=True)
 
     generate_pdf_report(config)

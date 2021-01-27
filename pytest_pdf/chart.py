@@ -7,29 +7,25 @@ from reportlab.lib import colors
 
 from pytest_pdf.result import Result
 
-LABELS = (Result.passed, Result.skipped, Result.failed)
-COLORS = (colors.lightgreen, colors.yellow, colors.orangered)
-
 
 def percent(dividend, divisor) -> float:
     return (dividend / divisor if divisor else 0) * 100
 
 
 class _PieChart(Pie):
-    def __init__(self, data, x, y, width, height):
+    def __init__(self, data, x, y, width, height, labels, colors_):
         super().__init__()
+        self.data = data
         self.x = x
         self.y = y
         self.width = width
         self.height = height
-        self.data = data
-        self.labels = LABELS
-        for index, color in enumerate(COLORS):
+        for index, color in enumerate(colors_):
             self.slices[index].fillColor = color
         self.slices.strokeWidth = 3
         self.slices.strokeColor = colors.white
         self.slices.fontSize = 12
-        self.slices[LABELS.index(Result.failed)].popout = 5
+        self.slices[labels.index(Result.failed)].popout = 5
 
 
 class _LegendHeader(Legend):
@@ -52,22 +48,21 @@ class _LegendHeader(Legend):
 
 
 class _Legend(Legend):
-    def __init__(self, data: Tuple[int, int, int], x, y, font_size, font_color, sub_cols, alignment):
+    def __init__(self, data: Tuple[int, int, int], x, y, labels, colors_, font_size, font_color, sub_cols, alignment):
         super().__init__()
         self.x = x
         self.y = y
         self.alignment = alignment  # color flag position in legend
-
         sum_ = sum(data)
-        colors_ = COLORS + (None,)
-        labels_ = LABELS + ("Sum",)
+        labels_ = labels + ("Sum",)
+        colors__ = colors_ + (None,)
         counts_ = tuple([str(count) for count in data]) + (str(sum_),)
         percents_ = tuple([str(round(percent(count, sum_), 2)) for count in data]) + (str(100.0),)
 
         self.columnMaximum = len(labels_)
 
         series = list(zip(labels_, counts_, percents_))
-        self.colorNamePairs = list(zip(colors_, series))
+        self.colorNamePairs = list(zip(colors__, series))
 
         self.fontName = "Times-Roman"
         self.fontSize = font_size
@@ -80,10 +75,10 @@ class _Legend(Legend):
 
 
 class PieChartWithLegend(Group):
-    def __init__(self, title: str, data: Tuple[int, int, int], x, y, *elements, **keywords):
+    def __init__(self, title: str, data: Tuple[int, int, int], x, y, labels, colors_, *elements, **keywords):
         super().__init__(*elements, **keywords)
         sub_cols = ((50, "left", 0), (40, "right", -10), (50, "right", -10))
-        pie_chart = _PieChart(data=data, x=x, y=y + 200, width=180, height=180)
+        pie_chart = _PieChart(data=data, x=x, y=y + 200, width=180, height=180, labels=labels, colors_=colors_)
         legend_header = _LegendHeader(
             x=pie_chart.x + 10,
             y=pie_chart.y - 80,
@@ -95,6 +90,8 @@ class PieChartWithLegend(Group):
             data=data,
             x=legend_header.x + 10,
             y=legend_header.y - 30,
+            labels=labels,
+            colors_=colors_,
             sub_cols=sub_cols,
             font_size=legend_header.fontSize,
             font_color=legend_header.fillColor,

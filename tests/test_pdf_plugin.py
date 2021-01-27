@@ -28,7 +28,7 @@ def test_pytest_pdf_plugin(testdir, request):
             assert False
         """
     )
-    report_path = testdir.tmpdir.join("report.pdf")
+    report_path = testdir.tmpdir.join("test_report.pdf")
     args = ["--pdf", report_path]  # "--log-cli-level", "DEBUG"
     if not request.config.pluginmanager.hasplugin("pytest_pdf.plugin"):
         args.extend(["-p", "pytest_pdf.plugin"])
