@@ -1,34 +1,57 @@
 import datetime
 import logging
-import time
 from collections import defaultdict
-from functools import lru_cache
 from pathlib import Path
-from typing import Union, Dict, List, Optional, Callable, Tuple
+from typing import Union, Dict, List, Optional, Tuple
 
 from _pytest.config import ExitCode
 from _pytest.main import Session
 from _pytest.reports import TestReport
 from _pytest.terminal import TerminalReporter
+from reportlab.graphics.shapes import Drawing
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.units import mm
+from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, Flowable, PageBreak, TA_CENTER
 
-logger = logging.getLogger(__name__)
+from pytest_pdf.options import Option
 
 ELLIPSIS = "..."
 ERROR_TEXT_MAX_LENGTH = 20
 
+STYLES = getSampleStyleSheet()
+
+TITLE_STYLE = ParagraphStyle(
+    name="Title",
+    parent=STYLES["Normal"],
+    fontSize=11,
+    alignment=TA_CENTER,
+    spaceBefore=5,
+    spaceAfter=10,
+)
+
+HEADING_1_STYLE = ParagraphStyle(
+    name="h1",
+    parent=STYLES["Heading1"],
+    fontSize=11,
+    leading=12,
+    spaceAfter=15,
+)
+
+logger = logging.getLogger(__name__)
+
 
 class PdfReport:
-    """collects data for pdf report generation"""
+    """collects test results and generates pdf report"""
 
     def __init__(self, report_path: Path):
-        path = Path(report_path)
-        now = datetime.datetime.now()
-        self.report_path = path.parent / now.strftime(path.name)
         self.start_dir = None
-        self.session_start_time = None
-        self.reports: Dict[Path, List[TestReport]] = defaultdict(list)
-        self.title = None
-        self.sw_infos = None
+        self.now = datetime.datetime.now()
+        self.reports: Dict[str, List[TestReport]] = defaultdict(list)
+        path = Path(report_path)
+        self.report_path = path.parent / self.now.strftime(path.name)
+        if self.report_path.parent.parts:
+            self.report_path.parent.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
     def _error_text(error: str):
@@ -45,12 +68,123 @@ class PdfReport:
         return passed, failed, skipped
 
     @staticmethod
-    def _flatten(reports: Dict[Path, List[TestReport]]) -> List[TestReport]:
+    def _flatten(reports: Dict[str, List[TestReport]]) -> List[TestReport]:
         return sum([r for r in reports.values()], [])
 
-    def _generate_report(self) -> None:
-        for project_path, reports in self.reports.items():
-            name = project_path.parent.parent.name if project_path else "Default project"
+    @staticmethod
+    def _footer(canvas, doc):
+        canvas.saveState()  # save state of canvas to draw on it
+        footer_paragraph = Paragraph(
+            text=str(doc.page),
+            style=ParagraphStyle(
+                name="footer",
+                parent=STYLES["Normal"],
+                spaceBefore=6,
+            ),
+        )
+        _, h = footer_paragraph.wrap(
+            availWidth=doc.width,
+            availHeight=doc.bottomMargin,
+        )
+        footer_paragraph.drawOn(canvas, x=doc.leftMargin, y=(h * 2))
+        canvas.restoreState()
+
+    def _create_doc(self):
+        doc = BaseDocTemplate(
+            filename=str(self.report_path),
+            pagesize=A4,
+            topMargin=27 * mm,
+            leftMargin=25 * mm,
+            rightMargin=20 * mm,
+            bottomMargin=25 * mm,
+        )
+        frame = Frame(
+            x1=getattr(doc, "leftMargin"),
+            y1=getattr(doc, "bottomMargin"),
+            width=getattr(doc, "width"),
+            height=getattr(doc, "height"),
+        )
+        template = PageTemplate(
+            id="report",
+            frames=frame,
+            onPage=PdfReport._footer,
+        )
+        doc.addPageTemplates([template])
+        return doc
+
+    def _story(self, session: Session) -> List[Flowable]:
+        flowables = []
+
+        for name, reports in self.reports.items():
+
+            version = PdfReport.pytest_pdf_project_version(name)
+            environment = PdfReport.pytest_pdf_environment_name(name)
+            tested_packages = PdfReport.pytest_pdf_tested_packages(name)
+            tested_packages_ = [f"{p[0]} ({p[1]})" for p in tested_packages]
+
+            titles = [
+                Paragraph(text=f"{name} {version}", style=STYLES["Title"]),
+                Paragraph(text="Test report", style=TITLE_STYLE),
+                Paragraph(text=f"Environment:  {environment}", style=TITLE_STYLE),
+                Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
+                Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
+            ]
+
+            # if session.config.getoption(Option.LF, None):
+            #     step_items = [item for script_item in project.items for item in script_item.children]
+            # else:
+            #     step_items = [item for script_item in project.items for item in script_item.children if item.selected]
+
+            charts = Drawing(
+                500,
+                500,
+                PieChartWithLegend(
+                    title="Test Cases", data=derive_results(config=config, items=project.items), x=0, y=0
+                ),
+                PieChartWithLegend(
+                    title="Test Steps ", data=sum_up_results(config=config, items=step_items), x=250, y=0
+                ),
+            )
+
+            if session.config.getoption(Option.PDF_SHORT, None):
+                result_pages = [
+                    get_test_case_result_page(
+                        config=config,
+                        items=project.items,
+                        heading=Paragraph("Overview Test Case Results", style=HEADING_1_STYLE),
+                    ),
+                    PageBreak(),
+                    *get_test_step_result_pages(
+                        items=[item for item in step_items if item.error],
+                        heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),
+                    ),
+                ]
+            else:
+                result_pages = [
+                    *get_test_step_result_pages(
+                        items=step_items,
+                        heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
+                    ),
+                ]
+
+            flowables.extend(
+                [
+                    *titles,
+                    charts,
+                    PageBreak(),
+                    *result_pages,
+                    get_environment_page(
+                        env=project.items[0].env,  # take 1st script item, because all use the same env
+                        heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
+                    ),
+                    PageBreak(),
+                ]
+            )
+
+        return flowables
+
+    def __generate_report(self) -> None:
+        for name, reports in self.reports.items():
             passed, failed, skipped = PdfReport._statistics(reports=reports)
             for i, r in enumerate(reports):
                 case_id, step_id = r.nodeid.split("::")
@@ -59,27 +193,25 @@ class PdfReport:
                     f"{i}. {name}, {case_id}, {step_id}, {r.when:<8}, {r.outcome:<7}, {error or '?'}, {r.caplog or '?'}"
                 )
 
+    def _generate_report(self, session: Session) -> None:
+        doc = self._create_doc()
+        doc.multiBuild(story=self._story(session))
+
     def _save_report(self) -> None:
         pass
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
-        # bottom = (self.start_dir / report.fspath).parent.parent
         bottom = self.start_dir / report.fspath
-        project_path = PdfReport.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
-        self.reports[project_path].append(report)
+        name = PdfReport.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
+        self.reports[name].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
-        logger.info("test session started")
         self.start_dir = Path(session.fspath)
-        self.session_start_time = time.time()
 
     def pytest_sessionfinish(self, session: Session, exitstatus: Union[int, ExitCode]) -> None:
-        logger.info("test session finished")
-        self.title = session.config.hook.pytest_pdf_report_title(session=session)
-        self.sw_infos = session.config.hook.pytest_pdf_tested_software(session=session)
         reports = PdfReport._flatten(reports=self.reports)
         passed, failed, skipped = PdfReport._statistics(reports=reports)
-        self._generate_report()
+        self._generate_report(session)
         self._save_report()
 
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
@@ -88,31 +220,19 @@ class PdfReport:
     # -- hook impl.
 
     @staticmethod
-    def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[Path]:
-        @lru_cache(maxsize=128)
-        def _find(path: Path, top_: Path, bottom_: Path, predicate: Callable[[Path], bool]) -> Optional[Path]:
-            """try to find 'path' from 'bottom' to 'top' dir."""
-            dir_ = top_ / bottom_.relative_to(top)
-            while True:
-                path_ = dir_ / path
-                logger.debug("find file '%s', dir '%s'", str(bottom_), str(path_))
-                if predicate(path_):
-                    return path_
-                if dir_ == top_:
-                    return Path(".")
-                dir_ = dir_.parent
-
-        return _find(
-            path=Path("impl/project"),
-            top_=top,
-            bottom_=bottom,
-            predicate=lambda p: p.is_dir(),
-        )
+    def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[str]:
+        return "Test Project"
 
     @staticmethod
-    def pytest_pdf_report_title(session: Session) -> str:
-        return "Test title"
+    def pytest_pdf_project_version(name: str) -> Optional[str]:
+        return "1.0.0"
 
     @staticmethod
-    def pytest_pdf_tested_software(session: Session) -> Tuple[str, str, list]:
-        return "Test", "1.0.0", []
+    def pytest_pdf_environment_name(name: str) -> Optional[str]:
+        return "DEV1"
+
+    @staticmethod
+    def pytest_pdf_tested_packages(name: str) -> List[Tuple[str, str]]:
+        return [
+            ("SOFTWARE", "1.0.0"),
+        ]
