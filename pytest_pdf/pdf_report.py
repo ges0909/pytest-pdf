@@ -77,6 +77,8 @@ TABLE_STYLE = [
     ("INNERGRID", (0, 0), (-1, -1), 0.1, colors.black),
 ]
 
+SPACE_AFTER_TABLE = 15
+
 logger = logging.getLogger(__name__)
 
 LABELS = ("passed", "skipped", "failed")
@@ -159,6 +161,7 @@ class PdfReport:
             colWidths=[110, 200, 50, 50, 50],
             hAlign="LEFT",
             style=TABLE_STYLE,
+            spaceAfter=SPACE_AFTER_TABLE,
         )
 
         return KeepTogether([heading, table])
@@ -223,7 +226,7 @@ class PdfReport:
                 repeatRows=1,
                 hAlign="LEFT",
                 style=TABLE_STYLE,
-                spaceAfter=15,
+                spaceAfter=SPACE_AFTER_TABLE,
             )
 
     def _test_step_result_pages(self, reports: List[TestReport], heading: Flowable = None) -> List[Flowable]:
@@ -264,8 +267,7 @@ class PdfReport:
             colWidths=[180, 280],
             hAlign="LEFT",
             style=TABLE_STYLE,
-            spaceBefore=5,
-            spaceAfter=15,
+            spaceAfter=SPACE_AFTER_TABLE,
         )
 
         return KeepTogether([heading, table])
@@ -333,9 +335,8 @@ class PdfReport:
                 result_pages = [
                     self._test_case_result_page(
                         reports=reports,
-                        heading=Paragraph("Overview Test Case Results", style=HEADING_1_STYLE),
+                        heading=Paragraph("Test Case Results", style=HEADING_1_STYLE),
                     ),
-                    PageBreak(),
                     *self._test_step_result_pages(
                         reports=[r for r in reports if r.outcome == "failed"],
                         heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),

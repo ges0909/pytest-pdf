@@ -6,15 +6,13 @@ pytest_plugins = (
 )
 
 
-# @pytest.mark.skip
 def test_pytest_pdf_plugin(testdir, request):
     testdir.makepyfile(
         r"""
         import logging
-        
-        logger = logging.getLogger(__name__)
-        
         import pytest
+
+        logger = logging.getLogger(__name__)
         
         def test_1():
             logger.info("test_1 ...")
