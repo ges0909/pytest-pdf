@@ -19,6 +19,7 @@ from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, 
 
 from pytest_pdf.chart import PieChartWithLegend
 from pytest_pdf.mkdir import mkdir
+from pytest_pdf.options import Option
 
 ELLIPSIS = "..."
 ERROR_TEXT_MAX_LENGTH = 60
@@ -61,6 +62,13 @@ TABLE_CELL_STYLE_LEFT = ParagraphStyle(
     fontSize=8,
     fontName="Courier",
     alignment=TA_LEFT,
+)
+
+TABLE_CELL_STYLE_CENTER = ParagraphStyle(
+    name="cell",
+    fontSize=8,
+    fontName="Courier",
+    alignment=TA_CENTER,
 )
 
 TABLE_STYLE = [
@@ -122,6 +130,39 @@ class PdfReport:
     def _result_style(color_):
         return ParagraphStyle(name="Normal", fontSize=9, fontName="Courier", alignment=TA_CENTER, backColor=color_)
 
+    @staticmethod
+    def _test_case_result_page(reports: List[TestReport], heading: Flowable) -> Flowable:
+        table_data = [
+            [
+                Paragraph("Skript", TABLE_HEADER_CELL_STYLE),
+                Paragraph("Test Case Id", TABLE_HEADER_CELL_STYLE),
+                Paragraph("Passed", TABLE_HEADER_CELL_STYLE),
+                Paragraph("Skipped", TABLE_HEADER_CELL_STYLE),
+                Paragraph("Failed", TABLE_HEADER_CELL_STYLE),
+            ],
+        ]
+
+        for report in reports:
+            passed, skipped, failed = PdfReport._test_step_results(reports=reports)
+            table_data.append(
+                [
+                    Paragraph("to be added", TABLE_CELL_STYLE_LEFT),
+                    Paragraph(report.nodeid.split("::")[0], TABLE_CELL_STYLE_LEFT),
+                    Paragraph(str(passed), TABLE_CELL_STYLE_CENTER),
+                    Paragraph(str(skipped), TABLE_CELL_STYLE_CENTER),
+                    Paragraph(str(failed), TABLE_CELL_STYLE_CENTER),
+                ]
+            )
+
+        table = Table(
+            data=table_data,
+            colWidths=[110, 200, 50, 50, 50],
+            hAlign="LEFT",
+            style=TABLE_STYLE,
+        )
+
+        return KeepTogether([heading, table])
+
     def _test_step_result_tables_grouped_by_test_case(
         self,
         reports: List[TestReport],
@@ -151,7 +192,7 @@ class PdfReport:
                 if previous_nodeid and previous_nodeid == report.nodeid:
                     test_step_id_paragraph = Paragraph("", TABLE_CELL_STYLE_LEFT)
                 else:
-                    test_step_id_paragraph = Paragraph(report.nodeid, TABLE_CELL_STYLE_LEFT)
+                    test_step_id_paragraph = Paragraph(report.nodeid.split("::")[1], TABLE_CELL_STYLE_LEFT)
                 # column 2
                 parameters = self.config.hook.pytest_pdf_test_parameters(nodeid=report.nodeid)
                 parameter_paragraphs = [Paragraph(p, TABLE_CELL_STYLE_LEFT) for p in parameters[0]]
@@ -160,16 +201,17 @@ class PdfReport:
                     report.outcome, PdfReport._result_style(COLORS[LABELS.index(report.outcome)])
                 )
                 # column 4
+                when = ""
+                text = ""
                 error_paragraph = None
                 if report.outcome == "skipped":
-                    reason = self.config.hook.pytest_pdf_skip_reason(nodeid=report.nodeid)
-                    if reason:
-                        error_paragraph = Paragraph(reason[0], TABLE_CELL_STYLE_LEFT)
+                    text = self.config.hook.pytest_pdf_skip_reason(nodeid=report.nodeid)[0]
                 elif report.outcome == "failed":
                     when = report.when if report.when in ("setup", "teardown") else ""
-                    if report.longreprtext:
-                        error = when + PdfReport._error_text(error=report.longreprtext, when=when)
-                        error_paragraph = Paragraph(error, TABLE_CELL_STYLE_LEFT)
+                    text = report.longreprtext
+                if text:
+                    error_text = PdfReport._error_text(error=text, when=when)
+                    error_paragraph = Paragraph(error_text, TABLE_CELL_STYLE_LEFT)
 
                 table_data.append([test_step_id_paragraph, parameter_paragraphs, result_paragraph, error_paragraph])
 
@@ -287,26 +329,25 @@ class PdfReport:
                 ),
             )
 
-            # if session.config.getoption(Option.PDF_SHORT, None):
-            #     result_pages = [
-            #         get_test_case_result_page(
-            #             config=config,
-            #             items=project.items,
-            #             heading=Paragraph("Overview Test Case Results", style=HEADING_1_STYLE),
-            #         ),
-            #         PageBreak(),
-            #         *get_test_step_result_pages(
-            #             items=[item for item in step_items if item.error],
-            #             heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),
-            #         ),
-            #     ]
-            # else:
-            result_pages = [
-                *self._test_step_result_pages(
-                    reports=reports,
-                    heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
-                ),
-            ]
+            if self.config.getoption(Option.PDF_SHORT, None):
+                result_pages = [
+                    self._test_case_result_page(
+                        reports=reports,
+                        heading=Paragraph("Overview Test Case Results", style=HEADING_1_STYLE),
+                    ),
+                    PageBreak(),
+                    *self._test_step_result_pages(
+                        reports=[r for r in reports if r.outcome == "failed"],
+                        heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),
+                    ),
+                ]
+            else:
+                result_pages = [
+                    *self._test_step_result_pages(
+                        reports=reports,
+                        heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
+                    )
+                ]
 
             flowables.extend(
                 [

@@ -31,8 +31,13 @@ def test_pytest_pdf_plugin(testdir, request):
         """
     )
     report_path = Path(testdir.tmpdir) / "test_report.pdf"
-    args = ["--pdf", report_path]
-    # args = ["--pdf", report_path, "--log-cli-level", "DEBUG"]
+    args = [
+        "--pdf",
+        report_path,
+        # "--pdf-short",
+        # "--log-cli-level",
+        # "DEBUG",
+    ]
     if not request.config.pluginmanager.hasplugin("pytest_pdf.plugin"):
         args.extend(["-p", "pytest_pdf.plugin"])
     result = testdir.runpytest(*args)
