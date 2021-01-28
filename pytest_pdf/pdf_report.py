@@ -197,6 +197,7 @@ class PdfReport:
                 else:
                     test_step_id_paragraph = Paragraph(report.nodeid.split("::")[1], TABLE_CELL_STYLE_LEFT)
                 # column 2
+                # TODO
                 parameters = self.config.hook.pytest_pdf_test_parameters(nodeid=report.nodeid)
                 parameter_paragraphs = [Paragraph(p, TABLE_CELL_STYLE_LEFT) for p in parameters[0]]
                 # column 3
@@ -408,6 +409,9 @@ class PdfReport:
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
         terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
 
+    def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
+        return f"{argname}={val}"
+
     # -- plugin hooks impl.
 
     @staticmethod
@@ -434,13 +438,6 @@ class PdfReport:
         return [
             ("PACKAGE x", "1.0.0"),
             ("PACKAGE y", "1.0.1"),
-        ]
-
-    @staticmethod
-    def pytest_pdf_test_parameters(nodeid: str) -> List[str]:
-        return [
-            "x=1",
-            "y=2",
         ]
 
     @staticmethod

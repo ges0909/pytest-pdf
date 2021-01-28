@@ -22,9 +22,5 @@ def pytest_pdf_tested_packages(project_name: str) -> List[Tuple[str, str]]:
     """returns name and version of tested project packages"""
 
 
-def pytest_pdf_test_parameters(nodeid: str) -> List[str]:
-    """returns parameter respresentations of test with 'nodeid'"""
-
-
 def pytest_pdf_skip_reason(nodeid: str) -> Optional[str]:
     """returns skip reason of test with 'nodeid'"""
