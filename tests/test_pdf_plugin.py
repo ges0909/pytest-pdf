@@ -46,7 +46,7 @@ def test_pytest_pdf_plugin(testdir, request):
     args = [
         "--pdf",
         report_path,
-        # "--pdf-short",
+        "--pdf-short",
         # "--log-cli-level",
         # "DEBUG",
     ]

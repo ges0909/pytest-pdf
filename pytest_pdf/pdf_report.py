@@ -134,8 +134,7 @@ class PdfReport:
     def _result_style(color_):
         return ParagraphStyle(name="Normal", fontSize=9, fontName="Courier", alignment=TA_CENTER, backColor=color_)
 
-    @staticmethod
-    def _test_case_page(reports: List[TestReport], heading: Flowable) -> Flowable:
+    def _test_case_page(self, reports: List[TestReport], heading: Flowable) -> Flowable:
         table_data = [
             [
                 Paragraph("Skript", TABLE_HEADER_CELL_STYLE),
@@ -146,12 +145,14 @@ class PdfReport:
             ],
         ]
 
-        for report in reports:
-            passed, skipped, failed = PdfReport._test_step_results(reports=reports)
+        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
+
+        for test_case_id, reports_ in test_cases:
+            passed, skipped, failed = self._test_step_results(reports=list(reports_))
             table_data.append(
                 [
-                    Paragraph("to be added", TABLE_CELL_STYLE_LEFT),
-                    Paragraph(report.nodeid.split("::")[0], TABLE_CELL_STYLE_LEFT),
+                    Paragraph("...", TABLE_CELL_STYLE_LEFT),
+                    Paragraph(test_case_id, TABLE_CELL_STYLE_LEFT),
                     Paragraph(str(passed), TABLE_CELL_STYLE_CENTER),
                     Paragraph(str(skipped), TABLE_CELL_STYLE_CENTER),
                     Paragraph(str(failed), TABLE_CELL_STYLE_CENTER),
@@ -317,15 +318,12 @@ class PdfReport:
                 Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
             ]
 
-            test_case_results = PdfReport._test_case_results(reports)
-            test_step_results = PdfReport._test_step_results(reports)
-
             charts = Drawing(
                 500,
                 500,
                 PieChartWithLegend(
                     title="Test Cases",
-                    data=test_case_results,
+                    data=self._test_case_results(reports),
                     x=0,
                     y=0,
                     labels=LABELS,
@@ -333,7 +331,7 @@ class PdfReport:
                 ),
                 PieChartWithLegend(
                     title="Test Steps ",
-                    data=test_step_results,
+                    data=self._test_step_results(reports),
                     x=250,
                     y=0,
                     labels=LABELS,
