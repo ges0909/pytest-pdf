@@ -100,28 +100,26 @@ class PdfReport:
         mkdir(path=self.report_path)
 
     @staticmethod
-    def _error_text(error: str, when: str, prefix: str = "FAILED "):
+    def _error_text(error: str, when: str):
         lines = error.split()
-        error_ = " ".join(lines)
-        if error_.startswith(prefix):
-            error_ = error_[len(prefix) :]  # remove prefix
+        error_ = " ".join(lines[1:])  # remove prefix
         error_ += when
-        length = ERROR_TEXT_MAX_LENGTH - len(ELLIPSIS)
-        return f"{error_[:length]}{ELLIPSIS}" if len(error_) > length else error_
+        max_length = ERROR_TEXT_MAX_LENGTH - len(ELLIPSIS)
+        return f"{error_[:max_length]}{ELLIPSIS}" if len(error_) > max_length else error_
 
     @staticmethod
     def _test_step_results(reports: List[TestReport]) -> Tuple[int, int, int]:
         passed = len([r for r in reports if r.when == "call" and r.outcome == "passed"])
         failed = len([r for r in reports if r.when == "call" and r.outcome == "failed"])
         skipped = len([r for r in reports if r.when == "setup" and r.outcome == "skipped"])
-        return passed, failed, skipped
+        return passed, skipped, failed
 
     @staticmethod
     def _test_case_results(reports: List[TestReport]) -> Tuple[int, int, int]:
         test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
         passed, skipped, failed = 0, 0, 0
         for _, reports_ in test_cases:
-            _passed, _skipped, _failed = PdfReport._test_step_results(reports=reports_)
+            _passed, _skipped, _failed = PdfReport._test_step_results(reports=list(reports_))
             if _failed > 0:
                 failed += 1
             elif _passed > 0:
@@ -210,15 +208,15 @@ class PdfReport:
                 )
                 # column 'Error/Reason'
                 when = ""
-                text = ""
+                reason = ""
                 error_paragraph = None
                 if report.outcome == "skipped":
-                    text = self.config.hook.pytest_pdf_skip_reason(nodeid=report.nodeid)[0]
+                    reason = report.longrepr[2]
                 elif report.outcome == "failed":
                     when = report.when if report.when in ("setup", "teardown") else ""
-                    text = report.longreprtext
-                if text:
-                    text_ = self._error_text(error=text, when=when)
+                    reason = report.longreprtext
+                if reason:
+                    text_ = self._error_text(error=reason, when=when)
                     error_paragraph = Paragraph(text_, TABLE_CELL_STYLE_LEFT)
 
                 table_data.append([test_step_id_paragraph, parameter_paragraphs, result_paragraph, error_paragraph])
@@ -263,7 +261,7 @@ class PdfReport:
             ],
         ]
 
-        data = self.config.hook.pytest_pdf_environment_data(environment_name=name)
+        data = self.config.hook.pytest_pdf_report_environment_data(environment_name=name)
 
         for key, value in data[0]:
             table_data.append(
@@ -305,9 +303,9 @@ class PdfReport:
         flowables = []
         for name, reports in self.reports.items():
 
-            version = self.config.hook.pytest_pdf_project_version(project_name=name)
-            environment_name = self.config.hook.pytest_pdf_environment_name(project_name=name)
-            tested_packages = self.config.hook.pytest_pdf_tested_packages(project_name=name)
+            version = self.config.hook.pytest_pdf_report_release(project_name=name)
+            environment_name = self.config.hook.pytest_pdf_report_environment_name(project_name=name)
+            tested_packages = self.config.hook.pytest_pdf_report_packages(project_name=name)
             tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
 
             titles = [
@@ -409,13 +407,16 @@ class PdfReport:
     def pytest_runtest_makereport(item: Item, call: CallInfo[None]) -> Optional[TestReport]:
         report = TestReport.from_item_and_call(item, call)
         setattr(report, "parameters", getattr(item, "funcargs", []))
+        # for mark in item.iter_markers(name="skip"):
+        #     if "reason" in mark.kwargs:
+        #         reason = mark.kwargs["reason"]
         return report
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
             bottom = self.start_dir / report.fspath
-            name = self.config.hook.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
-            self.reports[name[0]].append(report)
+            project = self.config.hook.pytest_pdf_report_project(top=self.start_dir, bottom=bottom)
+            self.reports[project[0]].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
         self.start_dir = Path(session.fspath)
@@ -429,31 +430,27 @@ class PdfReport:
     # -- plugin hooks impl.
 
     @staticmethod
-    def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[str]:
+    def pytest_pdf_report_project(top: Path, bottom: Path) -> Optional[str]:
         return "Test Project"
 
     @staticmethod
-    def pytest_pdf_project_version(project_name: str) -> Optional[str]:
+    def pytest_pdf_report_release(project_name: str) -> Optional[str]:
         return "1.0.0"
 
     @staticmethod
-    def pytest_pdf_environment_name(project_name: str) -> Optional[str]:
-        return "DEV1"
-
-    @staticmethod
-    def pytest_pdf_environment_data(environment_name: str) -> List[Tuple[str, str]]:
-        return [
-            ("enpoint", "http://www.vodafone.de/"),
-            ("username", "tester"),
-        ]
-
-    @staticmethod
-    def pytest_pdf_tested_packages(project_name: str) -> List[Tuple[str, str]]:
+    def pytest_pdf_report_packages(project_name: str) -> List[Tuple[str, str]]:
         return [
             ("PACKAGE x", "1.0.0"),
             ("PACKAGE y", "1.0.1"),
         ]
 
     @staticmethod
-    def pytest_pdf_skip_reason(nodeid: str) -> Optional[str]:
-        return "not implemented"
+    def pytest_pdf_report_environment_name(project_name: str) -> Optional[str]:
+        return "DEV1"
+
+    @staticmethod
+    def pytest_pdf_report_environment_data(environment_name: str) -> List[Tuple[str, str]]:
+        return [
+            ("enpoint", "http://www.vodafone.de/"),
+            ("username", "tester"),
+        ]
