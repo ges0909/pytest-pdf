@@ -15,20 +15,20 @@ def test_pytest_pdf_plugin(testdir, request):
         logger = logging.getLogger(__name__)
 
 
-        # def test_1():
-        #     logger.info("test_1 ...")
-        #     assert True
+        def test_1():
+            logger.info("test_1 ...")
+            assert True
 
 
-        # def test_2():
-        #     logger.info("test_2 ...")
-        #     assert False
+        def test_2():
+            logger.info("test_2 ...")
+            assert False
         
         
-        # @pytest.mark.skip(reason="no way of currently testing this")
-        # def test_3():
-        #     logger.info("test_3 ...")
-        #     assert False
+        @pytest.mark.skip(reason="no way of currently testing this")
+        def test_3():
+            logger.info("test_3 ...")
+            assert False
         
         
         @pytest.mark.parametrize(
@@ -53,4 +53,4 @@ def test_pytest_pdf_plugin(testdir, request):
     if not request.config.pluginmanager.hasplugin("pytest_pdf.plugin"):
         args.extend(["-p", "pytest_pdf.plugin"])
     result = testdir.runpytest(*args)
-    result.assert_outcomes(passed=2, failed=0, skipped=0)
+    result.assert_outcomes(passed=3, failed=1, skipped=1)

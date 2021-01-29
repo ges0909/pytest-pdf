@@ -7,7 +7,9 @@ from typing import Union, Dict, List, Optional, Tuple, Generator
 
 from _pytest.config import ExitCode, Config
 from _pytest.main import Session
+from _pytest.nodes import Item
 from _pytest.reports import TestReport
+from _pytest.runner import CallInfo
 from _pytest.terminal import TerminalReporter
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
@@ -133,7 +135,7 @@ class PdfReport:
         return ParagraphStyle(name="Normal", fontSize=9, fontName="Courier", alignment=TA_CENTER, backColor=color_)
 
     @staticmethod
-    def _test_case_result_page(reports: List[TestReport], heading: Flowable) -> Flowable:
+    def _test_case_page(reports: List[TestReport], heading: Flowable) -> Flowable:
         table_data = [
             [
                 Paragraph("Skript", TABLE_HEADER_CELL_STYLE),
@@ -166,7 +168,7 @@ class PdfReport:
 
         return KeepTogether([heading, table])
 
-    def _test_step_result_tables_grouped_by_test_case(
+    def _test_steps_grouped_by_test_case(
         self,
         reports: List[TestReport],
     ) -> Generator[Tuple[str, Table], None, None]:
@@ -188,23 +190,24 @@ class PdfReport:
             # continued on next page, then the error "...  too large on page ... in frame' will be raised.
             # There is no solution: https://groups.google.com/forum/#!topic/reportlab-users/wlIN3Fsg2VA
 
-            previous_nodeid = None
+            previous_test_step_id = None
 
             for span_to, report in enumerate(reports_, 1):  # 1 = exclude table header
-                # colum 1
-                if previous_nodeid and previous_nodeid == report.nodeid:
+                # colum 'Test Step Id'
+                _, test_step_id = report.nodeid.split("::")
+                if previous_test_step_id and previous_test_step_id == test_step_id:
+                    # 2nd, 3rd, ... row of parameterized test
                     test_step_id_paragraph = Paragraph("", TABLE_CELL_STYLE_LEFT)
                 else:
-                    test_step_id_paragraph = Paragraph(report.nodeid.split("::")[1], TABLE_CELL_STYLE_LEFT)
-                # column 2
-                # TODO
-                parameters = self.config.hook.pytest_pdf_test_parameters(nodeid=report.nodeid)
-                parameter_paragraphs = [Paragraph(p, TABLE_CELL_STYLE_LEFT) for p in parameters[0]]
-                # column 3
+                    test_step_id_paragraph = Paragraph(test_step_id, TABLE_CELL_STYLE_LEFT)
+                # column 'Parameter'
+                parameters = [f"{key}={value}" for key, value in report.parameters.items()]
+                parameter_paragraphs = Paragraph(", ".join(parameters), TABLE_CELL_STYLE_LEFT)
+                # column 'Result'
                 result_paragraph = Paragraph(
                     report.outcome, PdfReport._result_style(COLORS[LABELS.index(report.outcome)])
                 )
-                # column 4
+                # column 'Error/Reason'
                 when = ""
                 text = ""
                 error_paragraph = None
@@ -214,12 +217,12 @@ class PdfReport:
                     when = report.when if report.when in ("setup", "teardown") else ""
                     text = report.longreprtext
                 if text:
-                    error_text = PdfReport._error_text(error=text, when=when)
-                    error_paragraph = Paragraph(error_text, TABLE_CELL_STYLE_LEFT)
+                    text_ = self._error_text(error=text, when=when)
+                    error_paragraph = Paragraph(text_, TABLE_CELL_STYLE_LEFT)
 
                 table_data.append([test_step_id_paragraph, parameter_paragraphs, result_paragraph, error_paragraph])
 
-                previous_nodeid = report.nodeid
+                previous_test_step_id = test_case_id
 
             yield test_case_id, Table(
                 data=table_data,
@@ -230,10 +233,16 @@ class PdfReport:
                 spaceAfter=SPACE_AFTER_TABLE,
             )
 
-    def _test_step_result_pages(self, reports: List[TestReport], heading: Flowable = None) -> List[Flowable]:
+    def _test_step_error_pages(self, reports: List[TestReport], heading: Flowable = None) -> List[Flowable]:
+        return self._test_step_pages(
+            reports=[r for r in reports if r.outcome == "failed"],
+            heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),
+        )
+
+    def _test_step_pages(self, reports: List[TestReport], heading: Flowable = None) -> List[Flowable]:
         flowables = []
         not_inserted = True
-        for test_case_id, table in self._test_step_result_tables_grouped_by_test_case(reports=reports):
+        for test_case_id, table in self._test_steps_grouped_by_test_case(reports=reports):
             if heading and not_inserted:
                 flowables.append(
                     KeepTogether([heading, Paragraph(test_case_id, style=HEADING_2_STYLE), table]),
@@ -334,18 +343,18 @@ class PdfReport:
 
             if self.config.getoption(Option.PDF_SHORT, None):
                 result_pages = [
-                    self._test_case_result_page(
+                    self._test_case_page(
                         reports=reports,
                         heading=Paragraph("Test Case Results", style=HEADING_1_STYLE),
                     ),
-                    *self._test_step_result_pages(
-                        reports=[r for r in reports if r.outcome == "failed"],
+                    *self._test_step_error_pages(
+                        reports=reports,
                         heading=Paragraph("Test Step Errors", style=HEADING_1_STYLE),
                     ),
                 ]
             else:
                 result_pages = [
-                    *self._test_step_result_pages(
+                    *self._test_step_pages(
                         reports=reports,
                         heading=Paragraph("Test Step Results", style=HEADING_1_STYLE),
                     )
@@ -395,10 +404,20 @@ class PdfReport:
 
     # -- pytest hooks
 
+    # def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
+    #     self.parameters.append(f"{argname}={val}")
+
+    @staticmethod
+    def pytest_runtest_makereport(item: Item, call: CallInfo[None]) -> Optional[TestReport]:
+        report = TestReport.from_item_and_call(item, call)
+        setattr(report, "parameters", getattr(item, "funcargs", []))
+        return report
+
     def pytest_runtest_logreport(self, report: TestReport) -> None:
-        bottom = self.start_dir / report.fspath
-        name = self.config.hook.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
-        self.reports[name[0]].append(report)
+        if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
+            bottom = self.start_dir / report.fspath
+            name = self.config.hook.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
+            self.reports[name[0]].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
         self.start_dir = Path(session.fspath)
@@ -408,9 +427,6 @@ class PdfReport:
 
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
         terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
-
-    def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
-        return f"{argname}={val}"
 
     # -- plugin hooks impl.
 
