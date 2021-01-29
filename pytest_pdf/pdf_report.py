@@ -22,6 +22,7 @@ from reportlab.platypus import BaseDocTemplate, Frame, PageTemplate, Paragraph, 
 from pytest_pdf.chart import PieChartWithLegend
 from pytest_pdf.mkdir import mkdir
 from pytest_pdf.options import Option
+from pytest_pdf.report_info import ReportInfo
 
 ELLIPSIS = "..."
 ERROR_TEXT_MAX_LENGTH = 60
@@ -305,16 +306,16 @@ class PdfReport:
         flowables = []
         for name, reports in self.reports.items():
 
-            version = self.config.hook.pytest_pdf_project_version(project_name=name)
-            environment_name = self.config.hook.pytest_pdf_environment_name(project_name=name)
-            tested_packages = self.config.hook.pytest_pdf_tested_packages(project_name=name)
-            tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
+            info = self.config.hook.pytest_pdf_report_info(name=name)[0]
+            env = list(info.context.keys())[0]
+            packages = list(info.context.values())[0]
+            packages_ = [f"{package[0]} ({package[1]})" for package in packages]
 
             titles = [
-                Paragraph(text=f"{name} {version[0]}", style=STYLES["Title"]),
+                Paragraph(text=f"{name} {info.release}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
-                Paragraph(text=f"Environment:  {environment_name[0]}", style=TITLE_STYLE),
-                Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
+                Paragraph(text=f"Environment: {env}", style=TITLE_STYLE),
+                Paragraph(text=f"Tested software: {', '.join(packages_)}", style=TITLE_STYLE),
                 Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
             ]
 
@@ -365,7 +366,7 @@ class PdfReport:
                     PageBreak(),
                     *result_pages,
                     self._environment_page(
-                        name=environment_name,
+                        name=env,
                         heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
                     ),
                 ]
@@ -407,6 +408,7 @@ class PdfReport:
 
     @staticmethod
     def pytest_runtest_makereport(item: Item, call: CallInfo[None]) -> Optional[TestReport]:
+        """returns test report extendend with 'parameters' attribute"""
         report = TestReport.from_item_and_call(item, call)
         setattr(report, "parameters", getattr(item, "funcargs", []))
         return report
@@ -414,7 +416,7 @@ class PdfReport:
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
             bottom = self.start_dir / report.fspath
-            name = self.config.hook.pytest_pdf_project_name(top=self.start_dir, bottom=bottom)
+            name = self.config.hook.pytest_pdf_report_project_name(top=self.start_dir, bottom=bottom)
             self.reports[name[0]].append(report)
 
     def pytest_sessionstart(self, session: Session) -> None:
@@ -429,30 +431,25 @@ class PdfReport:
     # -- plugin hooks impl.
 
     @staticmethod
-    def pytest_pdf_project_name(top: Path, bottom: Path) -> Optional[str]:
+    def pytest_pdf_report_project_name(top: Path, bottom: Path) -> Optional[str]:
         return "Test Project"
 
     @staticmethod
-    def pytest_pdf_project_version(project_name: str) -> Optional[str]:
-        return "1.0.0"
-
-    @staticmethod
-    def pytest_pdf_environment_name(project_name: str) -> Optional[str]:
-        return "DEV1"
-
-    @staticmethod
-    def pytest_pdf_environment_data(environment_name: str) -> List[Tuple[str, str]]:
-        return [
-            ("enpoint", "http://www.vodafone.de/"),
-            ("username", "tester"),
-        ]
-
-    @staticmethod
-    def pytest_pdf_tested_packages(project_name: str) -> List[Tuple[str, str]]:
-        return [
-            ("PACKAGE x", "1.0.0"),
-            ("PACKAGE y", "1.0.1"),
-        ]
+    def pytest_pdf_report_info(name: str) -> Optional[ReportInfo]:
+        return ReportInfo(
+            title="Test Project",
+            release="1.0.0",
+            packages=[
+                ("PACKAGE x", "1.0.0"),
+                ("PACKAGE y", "1.0.1"),
+            ],
+            context={
+                "dev1": [
+                    ("enpoint", "http://www.vodafone.de/"),
+                    ("username", "tester"),
+                ]
+            },
+        )
 
     @staticmethod
     def pytest_pdf_skip_reason(nodeid: str) -> Optional[str]:
