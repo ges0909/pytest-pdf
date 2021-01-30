@@ -1,6 +1,7 @@
 import datetime
 import logging
-from collections import defaultdict
+import re
+from collections import defaultdict, Sequence
 from itertools import groupby
 from pathlib import Path
 from typing import Union, Dict, List, Optional, Tuple, Generator
@@ -95,9 +96,14 @@ class PdfReport:
         self.start_dir = None
         self.now = datetime.datetime.now()
         self.reports: Dict[str, List[TestReport]] = defaultdict(list)
+        self.nodeid_pattern = re.compile(r"^(.+)::([^][]+)(?:\[.+\])?$")
         path = Path(report_path)
         self.report_path = path.parent / self.now.strftime(path.name)
         mkdir(path=self.report_path)
+
+    def nodeid_parts(self, nodeid: str) -> Sequence[str, str]:
+        m = self.nodeid_pattern.match( nodeid)
+        return m.groups()
 
     @staticmethod
     def _error_text(error: str, when: str):
@@ -114,15 +120,14 @@ class PdfReport:
         skipped = len([r for r in reports if r.when == "setup" and r.outcome == "skipped"])
         return passed, skipped, failed
 
-    @staticmethod
-    def _test_case_results(reports: List[TestReport]) -> Tuple[int, int, int]:
-        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
+    def _test_case_results(self, reports: List[TestReport]) -> Tuple[int, int, int]:
         passed, skipped, failed = 0, 0, 0
+        test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
         for _, reports_ in test_cases:
-            _passed, _skipped, _failed = PdfReport._test_step_results(reports=list(reports_))
-            if _failed > 0:
+            passed_, skipped_, failed_ = self._test_step_results(reports=list(reports_))
+            if failed_ > 0:
                 failed += 1
-            elif _passed > 0:
+            elif passed_ > 0:
                 passed += 1
             else:
                 skipped += 1
@@ -143,7 +148,7 @@ class PdfReport:
             ],
         ]
 
-        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
+        test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
 
         for test_case_id, reports_ in test_cases:
             passed, skipped, failed = self._test_step_results(reports=list(reports_))
@@ -172,7 +177,7 @@ class PdfReport:
         reports: List[TestReport],
     ) -> Generator[Tuple[str, Table], None, None]:
 
-        test_cases = groupby(reports, lambda r: r.nodeid.split("::")[0])
+        test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
 
         for test_case_id, reports_ in test_cases:
 
@@ -193,7 +198,7 @@ class PdfReport:
 
             for span_to, report in enumerate(reports_, 1):  # 1 = exclude table header
                 # colum 'Test Step Id'
-                _, test_step_id = report.nodeid.split("::")
+                test_step_id = self.nodeid_parts(nodeid=report.nodeid)[1]
                 if previous_test_step_id and previous_test_step_id == test_step_id:
                     # 2nd, 3rd, ... row of parameterized test
                     test_step_id_paragraph = Paragraph("", TABLE_CELL_STYLE_LEFT)
@@ -203,9 +208,7 @@ class PdfReport:
                 parameters = [f"{key}={value}" for key, value in report.parameters.items()]
                 parameter_paragraphs = Paragraph(", ".join(parameters), TABLE_CELL_STYLE_LEFT)
                 # column 'Result'
-                result_paragraph = Paragraph(
-                    report.outcome, PdfReport._result_style(COLORS[LABELS.index(report.outcome)])
-                )
+                result_paragraph = Paragraph(report.outcome, self._result_style(COLORS[LABELS.index(report.outcome)]))
                 # column 'Error/Reason'
                 when = ""
                 reason = ""
@@ -221,7 +224,7 @@ class PdfReport:
 
                 table_data.append([test_step_id_paragraph, parameter_paragraphs, result_paragraph, error_paragraph])
 
-                previous_test_step_id = test_case_id
+                previous_test_step_id = test_step_id
 
             yield test_case_id, Table(
                 data=table_data,
@@ -261,9 +264,10 @@ class PdfReport:
             ],
         ]
 
-        data = self.config.hook.pytest_pdf_report_environment_data(environment_name=name)
+        info = self.config.hook.pytest_pdf_report_additional_info(project_name=name)[0]
+        data = list(info.values())[0]
 
-        for key, value in data[0]:
+        for key, value in data:
             table_data.append(
                 [
                     Paragraph(key, TABLE_CELL_STYLE_LEFT),
@@ -301,17 +305,18 @@ class PdfReport:
 
     def _story(self) -> List[Flowable]:
         flowables = []
-        for name, reports in self.reports.items():
+        for project_name, reports in self.reports.items():
 
-            version = self.config.hook.pytest_pdf_report_release(project_name=name)
-            environment_name = self.config.hook.pytest_pdf_report_environment_name(project_name=name)
-            tested_packages = self.config.hook.pytest_pdf_report_packages(project_name=name)
+            version = self.config.hook.pytest_pdf_report_release(project_name=project_name)[0]
+            info = self.config.hook.pytest_pdf_report_additional_info(project_name=project_name)[0]
+            env_name = list(info.keys())[0]
+            tested_packages = self.config.hook.pytest_pdf_report_packages(project_name=project_name)
             tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
 
             titles = [
-                Paragraph(text=f"{name} {version[0]}", style=STYLES["Title"]),
+                Paragraph(text=f"{project_name} {version}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
-                Paragraph(text=f"Environment:  {environment_name[0]}", style=TITLE_STYLE),
+                Paragraph(text=f"Environment:  {env_name}", style=TITLE_STYLE),
                 Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
                 Paragraph(text=f"Generated on: {self.now.strftime('%d %b %Y, %H:%M:%S')}", style=TITLE_STYLE),
             ]
@@ -363,7 +368,7 @@ class PdfReport:
                     PageBreak(),
                     *result_pages,
                     self._environment_page(
-                        name=environment_name,
+                        name=env_name,
                         heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
                     ),
                 ]
@@ -389,28 +394,27 @@ class PdfReport:
         template = PageTemplate(
             id="report",
             frames=frame,
-            onPage=PdfReport._footer,
+            onPage=self._footer,
         )
         doc.addPageTemplates([template])
         return doc
 
     def _generate_report(self) -> None:
         doc = self._create_doc()
-        doc.multiBuild(story=self._story())
+        story = self._story()
+        doc.multiBuild(story=story)
 
     # -- pytest hooks
 
-    # def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
-    #     self.parameters.append(f"{argname}={val}")
-
     @staticmethod
     def pytest_runtest_makereport(item: Item, call: CallInfo[None]) -> Optional[TestReport]:
+        """returns an empty test report instance exendend with the 'parameters' attribute"""
         report = TestReport.from_item_and_call(item, call)
         setattr(report, "parameters", getattr(item, "funcargs", []))
+        return report
         # for mark in item.iter_markers(name="skip"):
         #     if "reason" in mark.kwargs:
         #         reason = mark.kwargs["reason"]
-        return report
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
@@ -445,12 +449,25 @@ class PdfReport:
         ]
 
     @staticmethod
-    def pytest_pdf_report_environment_name(project_name: str) -> Optional[str]:
-        return "DEV1"
+    def pytest_pdf_report_additional_info(project_name: str) -> Dict[str, List[Tuple[str, str]]]:
+        return {
+            "dev1": [
+                ("enpoint", "http://www.vodafone.de/"),
+                ("username", "tester"),
+            ]
+        }
 
-    @staticmethod
-    def pytest_pdf_report_environment_data(environment_name: str) -> List[Tuple[str, str]]:
-        return [
-            ("enpoint", "http://www.vodafone.de/"),
-            ("username", "tester"),
-        ]
+    # def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
+    #     self.parameters.append(f"{argname}={val}")
+
+    # @staticmethod
+    # def pytest_runtest_setup(self, item: Item) -> None:
+    #     pass
+
+    # @staticmethod
+    # def pytest_runtest_call(self, item: Item) -> None:
+    #     pass
+
+    # @staticmethod
+    # def pytest_runtest_teardown(self, item: Item, nextitem: Optional[Item]) -> None:
+    #     pass
