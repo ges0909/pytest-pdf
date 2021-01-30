@@ -1,8 +1,10 @@
 from pathlib import Path
 from typing import Tuple, Optional, List, Dict
 
+from _pytest.nodes import Item
 
-def pytest_pdf_report_project(top: Path, bottom: Path) -> Optional[str]:
+
+def pytest_pdf_report_project(item: Item) -> Optional[str]:
     """returns project name"""
 
 

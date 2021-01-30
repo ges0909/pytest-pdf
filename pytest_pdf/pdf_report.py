@@ -93,7 +93,6 @@ class PdfReport:
 
     def __init__(self, config: Config, report_path: Path):
         self.config = config
-        self.start_dir = None
         self.now = datetime.datetime.now()
         self.reports: Dict[str, List[TestReport]] = defaultdict(list)
         self.nodeid_pattern = re.compile(r"^(.+)::([^][]+)(?:\[.+\])?$")
@@ -102,7 +101,7 @@ class PdfReport:
         mkdir(path=self.report_path)
 
     def nodeid_parts(self, nodeid: str) -> Sequence[str, str]:
-        m = self.nodeid_pattern.match( nodeid)
+        m = self.nodeid_pattern.match(nodeid)
         return m.groups()
 
     @staticmethod
@@ -132,10 +131,6 @@ class PdfReport:
             else:
                 skipped += 1
         return passed, skipped, failed
-
-    @staticmethod
-    def _result_style(color_):
-        return ParagraphStyle(name="Normal", fontSize=9, fontName="Courier", alignment=TA_CENTER, backColor=color_)
 
     def _test_case_page(self, reports: List[TestReport], heading: Flowable) -> Flowable:
         table_data = [
@@ -208,7 +203,15 @@ class PdfReport:
                 parameters = [f"{key}={value}" for key, value in report.parameters.items()]
                 parameter_paragraphs = Paragraph(", ".join(parameters), TABLE_CELL_STYLE_LEFT)
                 # column 'Result'
-                result_paragraph = Paragraph(report.outcome, self._result_style(COLORS[LABELS.index(report.outcome)]))
+                color = COLORS[LABELS.index(report.outcome)]
+                style = ParagraphStyle(
+                    name="Normal",
+                    fontSize=9,
+                    fontName="Courier",
+                    alignment=TA_CENTER,
+                    backColor=color,
+                )
+                result_paragraph = Paragraph(report.outcome, style=style)
                 # column 'Error/Reason'
                 when = ""
                 reason = ""
@@ -406,24 +409,17 @@ class PdfReport:
 
     # -- pytest hooks
 
-    @staticmethod
-    def pytest_runtest_makereport(item: Item, call: CallInfo[None]) -> Optional[TestReport]:
-        """returns an empty test report instance exendend with the 'parameters' attribute"""
+    def pytest_runtest_makereport(self, item: Item, call: CallInfo[None]) -> Optional[TestReport]:
+        """returns an empty test report instance with additional attributes"""
+        project = self.config.hook.pytest_pdf_report_project(item=item)[0]
         report = TestReport.from_item_and_call(item, call)
+        setattr(report, "project", project)
         setattr(report, "parameters", getattr(item, "funcargs", []))
         return report
-        # for mark in item.iter_markers(name="skip"):
-        #     if "reason" in mark.kwargs:
-        #         reason = mark.kwargs["reason"]
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
         if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
-            bottom = self.start_dir / report.fspath
-            project = self.config.hook.pytest_pdf_report_project(top=self.start_dir, bottom=bottom)
-            self.reports[project[0]].append(report)
-
-    def pytest_sessionstart(self, session: Session) -> None:
-        self.start_dir = Path(session.fspath)
+            self.reports[report.project].append(report)
 
     def pytest_sessionfinish(self, session: Session, exitstatus: Union[int, ExitCode]) -> None:
         self._generate_report()
@@ -434,8 +430,8 @@ class PdfReport:
     # -- plugin hooks impl.
 
     @staticmethod
-    def pytest_pdf_report_project(top: Path, bottom: Path) -> Optional[str]:
-        return "Test Project"
+    def pytest_pdf_report_project(item: Item) -> Optional[str]:
+        return "Project"
 
     @staticmethod
     def pytest_pdf_report_release(project_name: str) -> Optional[str]:
@@ -456,18 +452,3 @@ class PdfReport:
                 ("username", "tester"),
             ]
         }
-
-    # def pytest_make_parametrize_id(self, config: Config, val: object, argname: str) -> Optional[str]:
-    #     self.parameters.append(f"{argname}={val}")
-
-    # @staticmethod
-    # def pytest_runtest_setup(self, item: Item) -> None:
-    #     pass
-
-    # @staticmethod
-    # def pytest_runtest_call(self, item: Item) -> None:
-    #     pass
-
-    # @staticmethod
-    # def pytest_runtest_teardown(self, item: Item, nextitem: Optional[Item]) -> None:
-    #     pass
