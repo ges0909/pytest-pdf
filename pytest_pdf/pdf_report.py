@@ -143,9 +143,9 @@ class PdfReport:
             ],
         ]
 
-        test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
+        reports_grouped_by_test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
 
-        for test_case_id, reports_ in test_cases:
+        for test_case_id, reports_ in reports_grouped_by_test_cases:
             passed, skipped, failed = self._test_step_results(reports=list(reports_))
             table_data.append(
                 [
@@ -172,9 +172,9 @@ class PdfReport:
         reports: List[TestReport],
     ) -> Generator[Tuple[str, Table], None, None]:
 
-        test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
+        records_grouped_by_test_cases = groupby(reports, lambda r: self.nodeid_parts(nodeid=r.nodeid)[0])
 
-        for test_case_id, reports_ in test_cases:
+        for test_case_id, reports_ in records_grouped_by_test_cases:
 
             table_data = [
                 [
@@ -308,6 +308,7 @@ class PdfReport:
 
     def _story(self) -> List[Flowable]:
         flowables = []
+
         for project_name, reports in self.reports.items():
 
             version = self.config.hook.pytest_pdf_report_release(project_name=project_name)[0]
@@ -434,18 +435,18 @@ class PdfReport:
         return "Project"
 
     @staticmethod
-    def pytest_pdf_report_release(project_name: str) -> Optional[str]:
+    def pytest_pdf_report_release(project: str) -> Optional[str]:
         return "1.0.0"
 
     @staticmethod
-    def pytest_pdf_report_packages(project_name: str) -> List[Tuple[str, str]]:
+    def pytest_pdf_report_packages(project: str) -> List[Tuple[str, str]]:
         return [
             ("PACKAGE x", "1.0.0"),
             ("PACKAGE y", "1.0.1"),
         ]
 
     @staticmethod
-    def pytest_pdf_report_additional_info(project_name: str) -> Dict[str, List[Tuple[str, str]]]:
+    def pytest_pdf_report_additional_info(project: str) -> Dict[str, List[Tuple[str, str]]]:
         return {
             "dev1": [
                 ("enpoint", "http://www.vodafone.de/"),
