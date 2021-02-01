@@ -259,7 +259,7 @@ class PdfReport:
                 )
         return flowables
 
-    def _environment_page(self, name: str, heading: Flowable) -> Flowable:
+    def _environment_page(self, project: str, heading: Flowable) -> Flowable:
         table_data = [
             [
                 Paragraph("Data key", TABLE_HEADER_CELL_STYLE),
@@ -267,7 +267,7 @@ class PdfReport:
             ],
         ]
 
-        info = self.config.hook.pytest_pdf_report_additional_info(project_name=name)[0]
+        info = self.config.hook.pytest_pdf_report_additional_info(project=project)[0]
         data = list(info.values())[0]
 
         for key, value in data:
@@ -309,16 +309,16 @@ class PdfReport:
     def _story(self) -> List[Flowable]:
         flowables = []
 
-        for project_name, reports in self.reports.items():
+        for project, reports in self.reports.items():
 
-            version = self.config.hook.pytest_pdf_report_release(project_name=project_name)[0]
-            info = self.config.hook.pytest_pdf_report_additional_info(project_name=project_name)[0]
+            version = self.config.hook.pytest_pdf_report_release(project=project)[0]
+            info = self.config.hook.pytest_pdf_report_additional_info(project=project)[0]
             env_name = list(info.keys())[0]
-            tested_packages = self.config.hook.pytest_pdf_report_packages(project_name=project_name)
+            tested_packages = self.config.hook.pytest_pdf_report_packages(project=project)
             tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
 
             titles = [
-                Paragraph(text=f"{project_name} {version}", style=STYLES["Title"]),
+                Paragraph(text=f"{project} {version}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
                 Paragraph(text=f"Environment:  {env_name}", style=TITLE_STYLE),
                 Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
@@ -372,7 +372,7 @@ class PdfReport:
                     PageBreak(),
                     *result_pages,
                     self._environment_page(
-                        name=env_name,
+                        project=env_name,
                         heading=Paragraph("Environment Data", style=HEADING_1_STYLE),
                     ),
                 ]

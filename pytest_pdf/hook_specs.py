@@ -4,7 +4,7 @@ from _pytest.nodes import Item
 
 
 def pytest_pdf_report_project(item: Item) -> Optional[str]:
-    """returns project name"""
+    """returns unique project id, e.g. a name"""
 
 
 def pytest_pdf_report_release(project: str) -> Optional[str]:
