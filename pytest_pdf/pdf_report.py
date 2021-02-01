@@ -311,14 +311,14 @@ class PdfReport:
 
         for project, reports in self.reports.items():
 
-            version = self.config.hook.pytest_pdf_report_release(project=project)[0]
-            info = self.config.hook.pytest_pdf_report_additional_info(project=project)[0]
-            env_name = list(info.keys())[0]
+            release = self.config.hook.pytest_pdf_report_release(project=project)[0]
+            additional_info = self.config.hook.pytest_pdf_report_additional_info(project=project)[0]
+            env_name = list(additional_info.keys())[0]
             tested_packages = self.config.hook.pytest_pdf_report_packages(project=project)
             tested_packages_ = [f"{package[0]} ({package[1]})" for package in tested_packages[0]]
 
             titles = [
-                Paragraph(text=f"{project} {version}", style=STYLES["Title"]),
+                Paragraph(text=f"{project} {release}", style=STYLES["Title"]),
                 Paragraph(text="Test report", style=TITLE_STYLE),
                 Paragraph(text=f"Environment:  {env_name}", style=TITLE_STYLE),
                 Paragraph(text=f"Tested software: {', '.join(tested_packages_)}", style=TITLE_STYLE),
@@ -411,7 +411,7 @@ class PdfReport:
     # -- pytest hooks
 
     def pytest_runtest_makereport(self, item: Item, call: CallInfo[None]) -> Optional[TestReport]:
-        """returns an empty test report instance with additional attributes"""
+        """returns a test report instance with additional attributes"""
         project = self.config.hook.pytest_pdf_report_project(item=item)[0]
         report = TestReport.from_item_and_call(item, call)
         setattr(report, "project", project)
@@ -419,14 +419,16 @@ class PdfReport:
         return report
 
     def pytest_runtest_logreport(self, report: TestReport) -> None:
+        """collects a single test result"""
         if (report.when == "call") or (report.when == "setup" and report.outcome == "skipped"):
             self.reports[report.project].append(report)
 
     def pytest_sessionfinish(self, session: Session, exitstatus: Union[int, ExitCode]) -> None:
+        """generates a test report on base of the collected test results"""
         self._generate_report()
 
     def pytest_terminal_summary(self, terminalreporter: TerminalReporter):
-        terminalreporter.write_sep("--", f"pdf test report: {str(self.report_path)}")
+        terminalreporter.write_line(line=f"pdf test report: {str(self.report_path)}")
 
     # -- plugin hooks impl.
 
